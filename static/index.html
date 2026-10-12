@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GDL Builder</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="mark">GDL</div>
+      <button class="rail-btn is-active" data-view="library" title="Library">Lib</button>
+      <button class="rail-btn" data-view="jobs" title="Jobs">Jobs</button>
+      <button class="rail-btn" data-view="guides" title="Guides">Guide</button>
+    </aside>
+
+    <aside class="side">
+      <header class="side-head">
+        <h1 id="side-title">Library</h1>
+        <button id="import-toggle" class="text-btn" type="button">Import</button>
+      </header>
+      <form id="import-form" class="import-form" hidden>
+        <label>GSM file or library folder
+          <input id="import-path" type="text" spellcheck="false" placeholder="C:\path\to\object.gsm">
+        </label>
+        <label>Name
+          <input id="import-name" type="text" placeholder="Optional">
+        </label>
+        <button type="submit">Unpack into the library</button>
+        <p id="import-status" class="status"></p>
+      </form>
+      <div id="side-list" class="side-list"></div>
+    </aside>
+
+    <main class="stage">
+      <header class="stage-head">
+        <div>
+          <p class="eyebrow" id="eyebrow">No object open</p>
+          <h2 id="object-title">Open a library part</h2>
+        </div>
+        <div class="stage-actions">
+          <span id="save-state" class="status"></span>
+          <button id="save-btn" type="button" disabled>Save</button>
+          <button id="export-btn" type="button" disabled>Export GSM</button>
+        </div>
+      </header>
+      <div id="job-banner" class="banner" hidden></div>
+      <div class="workspace">
+        <section class="editor-pane">
+          <div id="script-tabs" class="tabs"></div>
+          <div class="editor-wrap">
+            <pre id="gutter" class="gutter" aria-hidden="true">1</pre>
+            <textarea id="code" spellcheck="false" placeholder="Choose a script or a text file."></textarea>
+          </div>
+        </section>
+        <section class="inspect">
+          <div class="tabs">
+            <button class="tab is-active" data-panel="details" type="button">Details</button>
+            <button class="tab" data-panel="parameters" type="button">Parameters</button>
+            <button class="tab" data-panel="files" type="button">Files</button>
+          </div>
+          <div id="panel-details" class="panel"></div>
+          <div id="panel-parameters" class="panel" hidden></div>
+          <div id="panel-files" class="panel" hidden></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
