@@ -348,4 +348,31 @@ document.querySelectorAll(".inspect .tab").forEach((button) => {
   button.addEventListener("click", () => showPanel(button.dataset.panel));
 });
 
+async function refreshOpenPart() {
+  if (!state.part || state.dirty || document.hidden) return;
+  try {
+    const part = await api(`/api/libraries/${encodeURIComponent(state.part.library)}/parts/${encodeURIComponent(state.part.id)}`);
+    const nameChanged = part.name !== state.part.name;
+    state.part = part;
+    if (nameChanged) {
+      $("object-title").textContent = part.name;
+      const listed = await api("/api/libraries");
+      state.libraries = listed.libraries;
+      if (state.view === "library") renderSide();
+    }
+    if (!state.file) return;
+    const data = await api(`/api/libraries/${state.part.library}/parts/${state.part.id}/text?file=${encodeURIComponent(state.file)}`);
+    if (!state.dirty && data.text !== state.original) {
+      const cursor = $("code").selectionStart;
+      setEditor(state.file, data.text);
+      $("code").selectionStart = $("code").selectionEnd = Math.min(cursor, data.text.length);
+      setStatus("Updated from the library");
+    }
+  } catch (error) {
+    // A missed refresh can wait for the next pass.
+  }
+}
+
+setInterval(refreshOpenPart, 2000);
+
 boot().catch((error) => setStatus(error.message, "bad"));

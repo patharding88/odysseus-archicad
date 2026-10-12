@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,20 @@ SCRIPT_SLOTS = [
     ("fm.gdl", "Forward migration"),
     ("bw.gdl", "Backward migration"),
 ]
+
+SCRIPT_NOTES = {
+    "1d.gdl": "Master script. objName is the name shown in the editor. Shared values are set here before the other scripts run.",
+    "2d.gdl": "2D symbol.",
+    "3d.gdl": "3D geometry.",
+    "pr.gdl": "Properties script.",
+    "vl.gdl": "Parameter script. VALUES lists and LOCK commands live here.",
+    "ui.gdl": "Interface script. The settings dialog and its checkboxes live here.",
+    "fm.gdl": "Forward migration, used when an old object is opened in a newer library part.",
+    "bw.gdl": "Backward migration.",
+}
+
+# Hashes of files the model has actually been shown. An edit is refused until the hash matches.
+_seen: dict[tuple[str, str, str], str] = {}
 
 EXAMPLES = [
     {
@@ -214,6 +229,18 @@ def _part_dir(lib_id: str, part_id: str) -> Path:
     return part
 
 
+_OBJNAME_RE = re.compile(r'(?m)^([ \t]*objName[ \t]*=[ \t]*)"([^"]*)"')
+
+
+def _display_name(part_dir: Path) -> str:
+    path = part_dir / "scripts" / "1d.gdl"
+    if path.exists():
+        match = _OBJNAME_RE.search(path.read_text(encoding="utf-8-sig"))
+        if match and match.group(2).strip():
+            return match.group(2).strip()
+    return part_dir.name.replace("_", " ")
+
+
 def _part_summary(lib_id: str, part_dir: Path) -> dict:
     data = ET.parse(part_dir / "libpartdata.xml").getroot()
     ident = data.find("Identification")
@@ -221,7 +248,7 @@ def _part_summary(lib_id: str, part_dir: Path) -> dict:
     return {
         "id": part_dir.name,
         "library": lib_id,
-        "name": part_dir.name.replace("_", " "),
+        "name": _display_name(part_dir),
         "guid": _text(ident, "MainGUID") if ident is not None else "",
         "placeable": _text(ident, "IsPlaceable") == "true" if ident is not None else False,
         "author": docs["author"],
@@ -338,9 +365,77 @@ def read_text_file(lib_id: str, part_id: str, relative: str) -> str:
     return path.read_text(encoding="utf-8-sig")
 
 
+def mark_seen(lib_id: str, part_id: str, relative: str, text: str) -> None:
+    _seen[(lib_id, part_id, relative)] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def forget_seen(lib_id: str, part_id: str, relative: str) -> None:
+    _seen.pop((lib_id, part_id, relative), None)
+
+
+def read_for_edit(lib_id: str, part_id: str, relative: str) -> str:
+    text = read_text_file(lib_id, part_id, relative)
+    mark_seen(lib_id, part_id, relative, text)
+    return text
+
+
+def _require_seen(lib_id: str, part_id: str, relative: str, text: str) -> None:
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if _seen.get((lib_id, part_id, relative)) != digest:
+        raise ValueError(
+            f"Read {relative} with read_gdl_file before changing it, and base the edit on that text. "
+            "If the file has changed since you read it, read it again."
+        )
+
+
 def write_text_file(lib_id: str, part_id: str, relative: str, text: str) -> None:
     path = _resolve_text(lib_id, part_id, relative, write=True)
+    old = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+    _require_seen(lib_id, part_id, relative, old)
+    if path.exists() and len(old) > 200 and len(text) < max(80, int(len(old) * 0.4)):
+        raise ValueError(
+            "Refusing to replace a long script with a short one. "
+            "Call edit_gdl_file with the exact lines to change, or send the whole script."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
+    _write_script(path, text)
+    forget_seen(lib_id, part_id, relative)
+
+
+def edit_text_file(lib_id: str, part_id: str, relative: str, find: str, replace: str) -> None:
+    if not find:
+        raise ValueError("Say which existing text to replace.")
+    path = _resolve_text(lib_id, part_id, relative, write=True)
+    text = path.read_text(encoding="utf-8-sig")
+    _require_seen(lib_id, part_id, relative, text)
+    count = text.count(find)
+    if count == 0:
+        raise ValueError("That text is not in the file you read. Copy the exact lines from read_gdl_file.")
+    if count > 1:
+        raise ValueError("That text appears more than once. Include another line so it matches once.")
+    _write_script(path, text.replace(find, replace, 1))
+    forget_seen(lib_id, part_id, relative)
+
+
+def rename_part(lib_id: str, part_id: str, name: str) -> dict:
+    cleaned = name.strip()
+    if not cleaned or any(char in cleaned for char in '"\r\n'):
+        raise ValueError("The object name needs to be one line, without quote marks.")
+    part_dir = _part_dir(lib_id, part_id)
+    path = part_dir / "scripts" / "1d.gdl"
+    text = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+    _require_seen(lib_id, part_id, "scripts/1d.gdl", text)
+    if _OBJNAME_RE.search(text):
+        updated = _OBJNAME_RE.sub(lambda match: f'{match.group(1)}"{cleaned}"', text, count=1)
+    else:
+        updated = f'objName = "{cleaned}"\n\n{text}'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_script(path, updated)
+    forget_seen(lib_id, part_id, "scripts/1d.gdl")
+    return {"name": cleaned, "file": "scripts/1d.gdl"}
+
+
+def _write_script(path: Path, text: str) -> None:
     path.write_text(text.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
 
 
